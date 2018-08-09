@@ -10,18 +10,20 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.location.FusedLocationProviderApi;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.SettingsClient;
 
-import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -36,16 +38,19 @@ import jp.sio.testapp.mylocation.Repository.LocationLog;
  */
 
 public class FlpService extends Service implements
-        LocationListener,
+        //com.google.android.gms.location.LocationListener,
         GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener{
 
     private GoogleApiClient mGoogleApiClient;
-    private FusedLocationProviderApi fusedLocationProviderApi;
+    //private FusedLocationProviderApi fusedLocationProviderApi;
+    private FusedLocationProviderClient fusedLocationProviderClient;
     private LocationRequest locationRequest;
-    private LocationLog locationLog;
     private PowerManager powerManager;
     private PowerManager.WakeLock wakeLock;
+
+    private LocationCallback locationCallback;
+    private LocationManager locationManager;
 
     private Handler resultHandler;
     private Handler intervalHandler;
@@ -64,6 +69,11 @@ public class FlpService extends Service implements
     private int settingSuplEndWaitTime;
     private int settingDelAssistdatatime;
 
+    //SUPLEND WaitTimeの処理関連
+    //onLocationChangeをCountして1回目のみで測位成功時の動作
+    //locationSuccessの呼び出しをする処理を作る
+    private int locationChangeCount;
+
     //測位中の測位回数
     private int runningCount;
     private double ttff;
@@ -75,11 +85,34 @@ public class FlpService extends Service implements
     private Calendar calendar = Calendar.getInstance();
     private long locationStartTime;
     private long locationStopTime;
-    SimpleDateFormat simpleDateFormatHH = new SimpleDateFormat("HH:mm:ss.SSS");
 
     //ログ出力用のヘッダー文字列 Settingのヘッダーと測位結果のヘッダー
     private String settingHeader;
     private String locationHeader;
+
+    /**
+     * Locationのコールバックを受け取る
+     */
+    private void createLocationCallback(){
+        locationCallback = new LocationCallback(){
+            @Override
+            public void onLocationResult(LocationResult locationResult){
+                super.onLocationResult(locationResult);
+                locationChangeCount++;
+                L.d("onLocationChanged," + "locationChangeCount:" + locationChangeCount);
+                if(locationChangeCount == 1){
+                    locationSuccess(locationResult.getLastLocation());
+                }
+            }
+        };
+    }
+
+    /**
+     * Locationのコールバックの削除
+     */
+    private void deleteLocationCallback(){
+        locationCallback = null;
+    }
 
     @Override
     public void onConnected(@Nullable Bundle bundle) {
@@ -111,13 +144,9 @@ public class FlpService extends Service implements
     @Override
     public void onCreate() {
         super.onCreate();
-
         resultHandler = new Handler();
         intervalHandler = new Handler();
         stopHandler = new Handler();
-
-        settingHeader = getResources().getString(R.string.settingHeader);
-        locationHeader = getResources().getString(R.string.locationHeader);
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(LocationServices.API)
@@ -153,25 +182,16 @@ public class FlpService extends Service implements
         settingDelAssistdatatime = intent.getIntExtra(getResources().getString(R.string.settingDelAssistdataTime), 0) * 1000;
         runningCount = 0;
 
-        //ログファイルの生成
-        locationLog = new LocationLog(this);
-        locationLog.makeLogFile(settingHeader);
-        locationLog.writeLog(
-                locationType + "," + settingCount + "," + settingTimeout
-                        + "," + settingInterval + "," + settingSuplEndWaitTime + ","
-                        + settingDelAssistdatatime + "," + settingIsCold);
-        locationLog.writeLog(locationHeader);
-        L.d("count:" + settingCount + " Timeout:" + settingTimeout + " Interval:" + settingInterval);
-        L.d("suplendwaittime" + settingSuplEndWaitTime + " " + "DelAssist" + settingDelAssistdatatime);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
-        fusedLocationProviderApi = LocationServices.FusedLocationApi;
+        //fusedLocationProviderClient = LocationServices.FusedLocationApi;
+        fusedLocationProviderClient = new FusedLocationProviderClient(this);
         locationRequest = LocationRequest.create();
         locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 
         if(!mGoogleApiClient.isConnected()){
             mGoogleApiClient.connect();
         }
-
         return START_STICKY;
     }
 
@@ -181,13 +201,18 @@ public class FlpService extends Service implements
     public void locationStart() {
 
         L.d("locationStart");
-
+        locationChangeCount = 0;
+        createLocationCallback();
         if (settingIsCold) {
-            coldLocation(fusedLocationProviderApi,mGoogleApiClient);
+            coldLocation(fusedLocationProviderClient,locationManager);
         }
         locationStartTime = System.currentTimeMillis();
         //MyLocationUsecaseで起動時にPermissionCheckを行っているのでここでは行わない
-        fusedLocationProviderApi.requestLocationUpdates(mGoogleApiClient,locationRequest,this);
+        try{
+            fusedLocationProviderClient.requestLocationUpdates(locationRequest,locationCallback, Looper.myLooper());
+        }catch (SecurityException e){
+            e.printStackTrace();
+        }
         L.d("requestLocationUpdates");
 
         //測位停止Timerの設定
@@ -196,34 +221,29 @@ public class FlpService extends Service implements
         stopTimer = new Timer(true);
         stopTimer.schedule(stopTimerTask,settingTimeout);
     }
-
     /**
      * 測位成功の場合の処理
      */
-    public void locationSuccess(final Location location){
+    public void locationSuccess(final Location location) {
         L.d("locationSuccess");
         //測位終了の時間を取得
         locationStopTime = System.currentTimeMillis();
         //測位タイムアウトのタイマーをクリア
-        if(stopTimer != null) {
+        if (stopTimer != null) {
             stopTimer.cancel();
+            stopTimer = null;
         }
         runningCount++;
         isLocationFix = true;
-        ttff = (double)(locationStopTime - locationStartTime) / 1000;
+        ttff = (double) (locationStopTime - locationStartTime) / 1000;
         //測位結果の通知
         resultHandler.post(new Runnable() {
             @Override
             public void run() {
                 L.d("resultHandler.post");
-                sendLocationBroadCast(isLocationFix,location,ttff);
+                sendLocationBroadCast(isLocationFix, location, locationStartTime, locationStopTime);
             }
         });
-        locationLog.writeLog(
-                simpleDateFormatHH.format(locationStartTime)  + "," +
-                simpleDateFormatHH.format(locationStopTime) + "," + isLocationFix + "," +
-                location.getLatitude() + "," + location.getLongitude() + "," + ttff + "," + location.getAccuracy()
-        );
         L.d(location.getLatitude() + " " + location.getLongitude());
 
         try {
@@ -232,22 +252,23 @@ public class FlpService extends Service implements
             L.d(e.getMessage());
             e.printStackTrace();
         }
-        if(fusedLocationProviderApi != null) {
-            fusedLocationProviderApi.removeLocationUpdates(mGoogleApiClient, this);
+        if(fusedLocationProviderClient != null) {
+            fusedLocationProviderClient.removeLocationUpdates(locationCallback);
         }
+        deleteLocationCallback();
 
         //測位回数が設定値に到達しているかチェック
-        if(runningCount == settingCount && settingCount != 0){
+        if (runningCount == settingCount && settingCount != 0) {
             serviceStop();
-        }else{
+        } else {
             //回数満了してなければ測位間隔Timerを設定して次の測位の準備
             L.d("SuccessのIntervalTimer");
-            if(intervalTimer != null){
+            if (intervalTimer != null) {
                 intervalTimer.cancel();
                 intervalTimer = null;
             }
-            intervalTimerTask = new IntervalTimerTask();
-            intervalTimer = new Timer(true);
+            intervalTimerTask = new FlpService.IntervalTimerTask();
+            intervalTimer = new Timer();
             L.d("Interval:" + settingInterval);
             intervalTimer.schedule(intervalTimerTask, settingInterval);
         }
@@ -257,36 +278,38 @@ public class FlpService extends Service implements
      * 測位失敗の場合の処理
      * 今のところタイムアウトした場合のみを想定
      */
-    public void locationFailed(){
+    public void locationFailed() {
         L.d("locationFailed");
         //測位終了の時間を取得
         locationStopTime = System.currentTimeMillis();
         runningCount++;
         isLocationFix = false;
-        fusedLocationProviderApi.removeLocationUpdates(mGoogleApiClient,this);
-        ttff = (double)(locationStopTime - locationStartTime) / 1000;
+        if(fusedLocationProviderClient != null) {
+            fusedLocationProviderClient.removeLocationUpdates(locationCallback);
+        }
+        deleteLocationCallback();
 
+        ttff = (double) (locationStopTime - locationStartTime) / 1000;
+
+        if (stopTimer != null) {
+            stopTimer = null;
+        }
         //測位結果の通知
         resultHandler.post(new Runnable() {
             @Override
             public void run() {
                 L.d("resultHandler.post");
                 Location location = new Location(LocationManager.GPS_PROVIDER);
-                sendLocationBroadCast(isLocationFix,location,ttff);
+                sendLocationBroadCast(isLocationFix, location, locationStartTime, locationStopTime);
             }
         });
-        locationLog.writeLog(
-                simpleDateFormatHH.format(locationStartTime)  + "," +
-                simpleDateFormatHH.format(locationStopTime) + "," + isLocationFix + "," +
-                "-1" + "," + "-1" + "," + ttff
-        );
         //測位回数が設定値に到達しているかチェック
-        if(settingCount == runningCount && settingCount != 0){
+        if (settingCount == runningCount && settingCount != 0) {
             serviceStop();
-        }else{
+        } else {
             L.d("FailedのIntervalTimer");
             //回数満了してなければ測位間隔Timerを設定して次の測位の準備
-            if(intervalTimer != null){
+            if (intervalTimer != null) {
                 intervalTimer.cancel();
                 intervalTimer = null;
             }
@@ -300,41 +323,40 @@ public class FlpService extends Service implements
      * 測位が終了してこのServiceを閉じるときの処理
      * 測位回数満了、停止ボタンによる停止を想定した処理
      */
-    public void serviceStop(){
+    public void serviceStop() {
         L.d("serviceStop");
-        if(fusedLocationProviderApi != null){
-            fusedLocationProviderApi.removeLocationUpdates(mGoogleApiClient,this);
-            fusedLocationProviderApi = null;
-        }
-
-        if(mGoogleApiClient != null){
-            mGoogleApiClient.disconnect();
-            mGoogleApiClient = null;
-        }
-        if(stopTimer != null){
+        if (stopTimer != null) {
             stopTimer.cancel();
             stopTimer = null;
         }
-        if(intervalTimer != null){
+        if (intervalTimer != null) {
             intervalTimer.cancel();
             intervalTimer = null;
         }
-        locationLog.endLogFile();
         //Serviceを終わるときにForegroundも停止する
         stopForeground(true);
         sendServiceEndBroadCast();
 
-        wakeLock.release();
-        if(powerManager != null) {
+        if(wakeLock != null) {
+            wakeLock.release();
+            wakeLock = null;
+        }
+        if (powerManager != null) {
             powerManager = null;
         }
-        //locationLog.endLogFile();
+        stopSelf();
     }
 
+    /*
     @Override
     public void onLocationChanged(final Location location) {
-        locationSuccess(location);
+        locationChangeCount++;
+        L.d("onLocationChanged," + "locationChangeCount:" + locationChangeCount);
+        if(locationChangeCount == 1){
+            locationSuccess(location);
+        }
     }
+    */
 
     @Override
     public void onDestroy(){
@@ -346,10 +368,12 @@ public class FlpService extends Service implements
     /**
      * アシストデータの削除
      */
-    private void coldLocation(FusedLocationProviderApi flp,GoogleApiClient client){
+    private void coldLocation(FusedLocationProviderClient flp,LocationManager lm){
         sendColdBroadCast(getResources().getString(R.string.categoryColdStart));
         L.d("coldBroadcast:" + getResources().getString(R.string.categoryColdStart));
-        flp.flushLocations(client);
+        //flp.flushLocations();
+        lm.sendExtraCommand(LocationManager.GPS_PROVIDER, "delete_aiding_data", null);
+
         try {
             Thread.sleep(settingDelAssistdatatime);
         } catch (InterruptedException e) {
@@ -398,17 +422,21 @@ public class FlpService extends Service implements
 
     /**
      * 測位完了を上に通知するBroadcast 測位結果を入れる
-     * @param fix 測位成功:True 失敗:False
-     * @param location 測位結果
-     * @param ttff 測位API実行～測位停止までの時間
+     *
+     * @param fix               測位成功:True 失敗:False
+     * @param location          測位結果
+     * @param locationStartTime 測位API実行の時間
+     * @param locationStopTime  測位API停止の時間
      */
-    protected void sendLocationBroadCast(Boolean fix,Location location,double ttff){
+    protected void sendLocationBroadCast(Boolean fix, Location location, long locationStartTime, long locationStopTime) {
         L.d("sendLocation");
         Intent broadcastIntent = new Intent(getResources().getString(R.string.locationFlp));
-        broadcastIntent.putExtra(getResources().getString(R.string.category),getResources().getString(R.string.categoryLocation));
-        broadcastIntent.putExtra(getResources().getString(R.string.TagisFix),fix);
-        broadcastIntent.putExtra(getResources().getString(R.string.TagLocation),location);
-        broadcastIntent.putExtra(getResources().getString(R.string.Tagttff),ttff);
+        broadcastIntent.putExtra(getResources().getString(R.string.category), getResources().getString(R.string.categoryLocation));
+        broadcastIntent.putExtra(getResources().getString(R.string.TagisFix), fix);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagLocation), location);
+        broadcastIntent.putExtra(getResources().getString(R.string.Tagttff), ttff);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagLocationStarttime), locationStartTime);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagLocationStoptime), locationStopTime);
 
         sendBroadcast(broadcastIntent);
     }
@@ -436,7 +464,6 @@ public class FlpService extends Service implements
      */
     protected void sendServiceEndBroadCast(){
         Intent broadcastIntent = new Intent(getResources().getString(R.string.locationFlp));
-        broadcastIntent.putExtra(getResources().getString(R.string.category),getResources().getString(R.string.categoryServiceEnd));
         broadcastIntent.putExtra(getResources().getString(R.string.category),getResources().getString(R.string.categoryServiceEnd));
         sendBroadcast(broadcastIntent);
     }

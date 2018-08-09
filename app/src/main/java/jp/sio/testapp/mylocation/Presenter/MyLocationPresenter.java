@@ -183,7 +183,6 @@ public class MyLocationPresenter {
 
         if(locationType.equals(activity.getResources().getString(R.string.locationUeb))) {
             L.d("after_UEBService");
-
             locationserviceIntent = new Intent(activity.getApplicationContext(), UebService.class);
             setSetting(locationserviceIntent);
             runService = serviceConnectionUeb;
@@ -191,7 +190,6 @@ public class MyLocationPresenter {
             L.d("before_UEBService");
 
         }else if(locationType.equals(activity.getResources().getString(R.string.locationUea))){
-            locationserviceIntent = new Intent(activity.getApplicationContext(), UeaService.class);
             locationserviceIntent = new Intent(activity.getApplicationContext(), UeaService.class);
             setSetting(locationserviceIntent);
             runService = serviceConnectionUea;
