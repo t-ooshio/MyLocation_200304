@@ -4,7 +4,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.support.annotation.RequiresApi;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -33,7 +35,7 @@ public class LocationLog {
     private File file;
     private String fileName;
     private String filePath;
-    private String dirPath;
+    private File dirPath;
     private OutputStreamWriter outputStreamWriter;
     private FileOutputStream fileOutputStream;
 
@@ -46,12 +48,15 @@ public class LocationLog {
     /**
      * Logファイルを作成
      */
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     public void makeLogFile(String settingHeader){
         createLogTime = System.currentTimeMillis();
         fileName = simpleDateFormat.format(createLogTime) + ".txt";
         if(isExternalStrageWriteable()){
             L.d("ExternalStrage書き込みOK");
-            dirPath = Environment.getExternalStorageDirectory().getPath() + "/MyLocation/";
+            //dirPath = Environment.getExternalStorageDirectory().getPath() + "/MyLocation/";
+            dirPath = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+            L.d(dirPath.toString());
             filePath = dirPath + fileName;
             file = new File(filePath);
             try {

@@ -1,6 +1,5 @@
 package jp.sio.testapp.mylocation.Presenter;
 
-import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -15,7 +14,6 @@ import android.os.IBinder;
 
 import java.text.SimpleDateFormat;
 import java.util.List;
-import java.util.logging.Handler;
 
 import jp.sio.testapp.mylocation.Activity.MyLocationActivity;
 import jp.sio.testapp.mylocation.Activity.SettingActivity;
@@ -119,6 +117,7 @@ public class MyLocationPresenter {
             iareaService = null;
         }
     };
+
     private ServiceConnection serviceConnectionFlp = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder service) {
@@ -128,11 +127,9 @@ public class MyLocationPresenter {
         @Override
         public void onServiceDisconnected(ComponentName componentName) {
             activity.unbindService(runService);
-            flpService = null;
+            iareaService = null;
         }
     };
-
-
 
     private final LocationReceiver locationReceiver = new LocationReceiver();
 
@@ -228,16 +225,6 @@ public class MyLocationPresenter {
     public void locationStop(){
         L.d("locationStop");
 
-        //ServiceConnectionの削除
-        /*
-        L.d("ServiceConnectionの削除");
-        if(runService != null) {
-            if (isServiceRunning(activity, runService.getClass())) {
-                L.d("unbindService");
-                activity.unbindService(runService);
-            }
-        }
-        */
         L.d("ServiceConnectionの削除");
         if(runService != null) {
             L.d("unbindService");
@@ -301,7 +288,8 @@ public class MyLocationPresenter {
         long fixtimeEpoch;
         String fixtimeUTC;
         String locationStarttime, locationStoptime;
-
+        int sucCnt;
+        int failCnt;
 
         Location location = new Location(LocationManager.GPS_PROVIDER);
         SimpleDateFormat fixTimeFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZZZZ");
@@ -316,6 +304,8 @@ public class MyLocationPresenter {
             if (receiveCategory.equals(categoryLocation)) {
                 location = bundle.getParcelable(activity.getResources().getString(R.string.TagLocation));
                 isFix = bundle.getBoolean(activity.getResources().getString(R.string.TagisFix));
+                sucCnt = bundle.getInt(activity.getResources().getString(R.string.TagSuccessCount));
+                failCnt = bundle.getInt(activity.getResources().getString(R.string.TagFailCount));
                 locationStarttime = simpleDateFormatHH.format(bundle.getLong(activity.getResources().getString(R.string.TagLocationStarttime)));
                 locationStoptime = simpleDateFormatHH.format(bundle.getLong(activity.getResources().getString(R.string.TagLocationStoptime)));
                 if (isFix) {
@@ -332,13 +322,13 @@ public class MyLocationPresenter {
                 ttff = bundle.getDouble(activity.getResources().getString(R.string.Tagttff));
                 L.d("onReceive");
                 L.d(locationStarttime + "," + locationStoptime + "," + isFix + "," + lattude + "," + longitude + "," + ttff + ","
-                        + fixtimeEpoch + "," + fixtimeUTC + "\n");
+                        + sucCnt + "," + failCnt + "," + fixtimeEpoch + "," + fixtimeUTC + "\n");
                 locationLog.writeLog(
                         locationStarttime + "," + locationStoptime + "," + isFix + "," + location.getLatitude() + "," + location.getLongitude()
                                 + "," + ttff + "," + location.getAccuracy() + "," + fixtimeEpoch + "," + fixtimeUTC);
 
-                activity.showTextViewResult("測位成否：" + isFix + "\n" + "緯度:" + lattude + "\n" + "経度:" + longitude + "\n" + "TTFF：" + ttff
-                        + "\n" + "fixTimeEpoch:" + fixtimeEpoch + "\n" + "fixTimeUTC:" + fixtimeUTC + "\n");
+                activity.showTextViewResult("測位成否:" + isFix + "\n" + "緯度:" + lattude + "\n" + "経度:" + longitude + "\n" + "TTFF：" + ttff + "\n" + "Accuracy:" + location.getAccuracy()
+                        + "\n" + "成功回数:" + sucCnt + "\n"  + "失敗回数:" + failCnt + "\n" + "fixTimeEpoch:" + fixtimeEpoch + "\n" + "fixTimeUTC:" + fixtimeUTC + "\n");
 
                 activity.showTextViewState(activity.getResources().getString(R.string.locationWait));
             } else if (receiveCategory.equals(categoryColdStart)) {
