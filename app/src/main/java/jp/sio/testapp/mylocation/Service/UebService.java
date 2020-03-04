@@ -13,9 +13,6 @@ import android.app.Service;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.Handler;
-import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
-import android.support.v4.app.NotificationCompat;
 import android.text.TextUtils;
 
 import java.text.SimpleDateFormat;
@@ -94,7 +91,6 @@ public class UebService extends Service implements LocationListener {
 
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     public int onStartCommand(Intent intent, int flags, int startid) {
         super.onStartCommand(intent, flags, startid);

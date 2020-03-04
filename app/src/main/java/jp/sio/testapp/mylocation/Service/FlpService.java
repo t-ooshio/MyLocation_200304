@@ -12,8 +12,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -76,6 +74,9 @@ public class FlpService extends Service implements
 
     //測位中の測位回数
     private int runningCount;
+    private int successCount;
+    private int failCount;
+
     private double ttff;
 
     //測位成功の場合:true 測位失敗の場合:false を設定
@@ -115,7 +116,7 @@ public class FlpService extends Service implements
     }
 
     @Override
-    public void onConnected(@Nullable Bundle bundle) {
+    public void onConnected(Bundle bundle) {
         L.d("onCennected");
         locationStart();
     }
@@ -131,7 +132,7 @@ public class FlpService extends Service implements
     }
 
     @Override
-    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+    public void onConnectionFailed(ConnectionResult connectionResult) {
         L.d("onCennectionFailed");
     }
 
@@ -148,11 +149,14 @@ public class FlpService extends Service implements
         intervalHandler = new Handler();
         stopHandler = new Handler();
 
+        L.d("before mGoogleApiClient");
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(LocationServices.API)
                 .addConnectionCallbacks(this)
                 .addOnConnectionFailedListener(this)
                 .build();
+        L.d("after mGoogleApiClient");
+
     }
 
     @Override
@@ -162,8 +166,10 @@ public class FlpService extends Service implements
 
         //サービスがKillされるのを防止する処理
         //サービスがKillされにくくするために、Foregroundで実行する
+        /*
         Notification notification = new Notification();
         startForeground(1, notification);
+        */
 
         //画面が消灯しないようにする処理
         //画面が消灯しないようにPowerManagerを使用
@@ -181,6 +187,9 @@ public class FlpService extends Service implements
         settingSuplEndWaitTime = intent.getIntExtra(getResources().getString(R.string.settingSuplEndWaitTime), 0) * 1000;
         settingDelAssistdatatime = intent.getIntExtra(getResources().getString(R.string.settingDelAssistdataTime), 0) * 1000;
         runningCount = 0;
+        successCount = 0;
+        failCount = 0;
+
 
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
@@ -234,6 +243,7 @@ public class FlpService extends Service implements
             stopTimer = null;
         }
         runningCount++;
+        successCount++;
         isLocationFix = true;
         ttff = (double) (locationStopTime - locationStartTime) / 1000;
         //測位結果の通知
@@ -283,6 +293,7 @@ public class FlpService extends Service implements
         //測位終了の時間を取得
         locationStopTime = System.currentTimeMillis();
         runningCount++;
+        failCount++;
         isLocationFix = false;
         if(fusedLocationProviderClient != null) {
             fusedLocationProviderClient.removeLocationUpdates(locationCallback);
@@ -436,6 +447,8 @@ public class FlpService extends Service implements
         broadcastIntent.putExtra(getResources().getString(R.string.TagLocation), location);
         broadcastIntent.putExtra(getResources().getString(R.string.Tagttff), ttff);
         broadcastIntent.putExtra(getResources().getString(R.string.TagLocationStarttime), locationStartTime);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagSuccessCount),successCount);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagFailCount),failCount);
         broadcastIntent.putExtra(getResources().getString(R.string.TagLocationStoptime), locationStopTime);
 
         sendBroadcast(broadcastIntent);

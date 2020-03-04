@@ -53,6 +53,9 @@ public class NetworkService extends Service implements LocationListener {
 
     //測位中の測位回数
     private int runningCount;
+    private int successCount;
+    private int failCount;
+
     private double ttff;
 
     //測位成功の場合:true 測位失敗の場合:false を設定
@@ -94,8 +97,8 @@ public class NetworkService extends Service implements LocationListener {
 
         //サービスがKillされるのを防止する処理
         //サービスがKillされにくくするために、Foregroundで実行する
-        Notification notification = new Notification();
-        startForeground(1, notification);
+        //Notification notification = new Notification();
+        //startForeground(1, notification);
 
         //画面が消灯しないようにする処理
         //画面が消灯しないようにPowerManagerを使用
@@ -113,6 +116,9 @@ public class NetworkService extends Service implements LocationListener {
         settingSuplEndWaitTime = intent.getIntExtra(getResources().getString(R.string.settingSuplEndWaitTime), 0) * 1000;
         settingDelAssistdatatime = intent.getIntExtra(getResources().getString(R.string.settingDelAssistdataTime), 0) * 1000;
         runningCount = 0;
+        successCount = 0;
+        failCount = 0;
+
 
         //ログファイルの生成
         locationLog = new LocationLog(this);
@@ -164,6 +170,7 @@ public class NetworkService extends Service implements LocationListener {
             stopTimer.cancel();
         }
         runningCount++;
+        successCount++;
         isLocationFix = true;
         ttff = (double)(locationStopTime - locationStartTime) / 1000;
         //測位結果の通知
@@ -217,6 +224,7 @@ public class NetworkService extends Service implements LocationListener {
         //測位終了の時間を取得
         locationStopTime = System.currentTimeMillis();
         runningCount++;
+        failCount++;
         isLocationFix = false;
         locationManager.removeUpdates(this);
         ttff = (double)(locationStopTime - locationStartTime) / 1000;
@@ -356,10 +364,14 @@ public class NetworkService extends Service implements LocationListener {
     protected void sendLocationBroadCast(Boolean fix,Location location,double ttff){
         L.d("sendLocation");
         Intent broadcastIntent = new Intent(getResources().getString(R.string.locationNw));
-        broadcastIntent.putExtra(getResources().getString(R.string.category),getResources().getString(R.string.categoryLocation));
-        broadcastIntent.putExtra(getResources().getString(R.string.TagisFix),fix);
-        broadcastIntent.putExtra(getResources().getString(R.string.TagLocation),location);
-        broadcastIntent.putExtra(getResources().getString(R.string.Tagttff),ttff);
+        broadcastIntent.putExtra(getResources().getString(R.string.category), getResources().getString(R.string.categoryLocation));
+        broadcastIntent.putExtra(getResources().getString(R.string.TagisFix), fix);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagLocation), location);
+        broadcastIntent.putExtra(getResources().getString(R.string.Tagttff), ttff);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagLocationStarttime), locationStartTime);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagSuccessCount),successCount);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagFailCount),failCount);
+        broadcastIntent.putExtra(getResources().getString(R.string.TagLocationStoptime), locationStopTime);
 
         sendBroadcast(broadcastIntent);
     }
